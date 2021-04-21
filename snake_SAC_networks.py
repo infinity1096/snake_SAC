@@ -13,15 +13,8 @@ class ValueNetwork(nn.Module):
 
         super().__init__()
 
-        self.conv_net = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=5, kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-
-        linear_in = state_dim[0] * state_dim[1] * 5
-
         self.fully_connected_net = nn.Sequential(
-            nn.Linear(linear_in, hidden_dim),
+            nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
@@ -30,9 +23,7 @@ class ValueNetwork(nn.Module):
 
     def forward(self, state):
 
-        x = self.conv_net(state)
-        x = x.view(x.size(0), -1)
-        x = self.fully_connected_net(x)
+        x = self.fully_connected_net(state)
 
         return x
 
@@ -42,14 +33,9 @@ class SoftQNetwork(nn.Module):
 
         super().__init__()
 
-        self.conv_net = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=5, kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-
         self.action_dim = action_dim
 
-        linear_in = state_dim[0] * state_dim[1] * 5 + action_dim
+        linear_in = state_dim + action_dim
 
         self.fully_connected_net = nn.Sequential(
             nn.Linear(linear_in, hidden_dim),
@@ -62,13 +48,9 @@ class SoftQNetwork(nn.Module):
 
     def forward(self, state, action):
 
-        x = self.conv_net(state)
-
-        x = x.view(x.size(0), -1)
-
         action_one_hot = F.one_hot(action, self.action_dim)
 
-        x = torch.cat([x, action_one_hot],1)
+        x = torch.cat([state, action_one_hot],1)
         
         x = self.fully_connected_net(x)
 
@@ -83,15 +65,8 @@ class PolicyNetwork(nn.Module):
         self.log_prob_min = log_prob_min
         self.log_prob_max = log_prob_max
 
-        self.conv_net = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=5, kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-
-        linear_in = state_dim[0] * state_dim[1] * 5
-
         self.fully_connected_net = nn.Sequential(
-            nn.Linear(linear_in, hidden_dim),
+            nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
@@ -100,9 +75,7 @@ class PolicyNetwork(nn.Module):
 
     def forward(self, state):
        
-        x = self.conv_net(state)
-        x = x.view(x.size(0), -1)
-        log_prob = self.fully_connected_net(x)
+        log_prob = self.fully_connected_net(state)
 
         # limit log_std range
         log_prob = torch.clamp(log_prob, self.log_prob_min, self.log_prob_max)
@@ -112,6 +85,7 @@ class PolicyNetwork(nn.Module):
         return probs
 
     def evaluate(self, state, epsilon=1e-6):
+        
         probs = self.forward(state)
 
         categorical = Categorical(probs)

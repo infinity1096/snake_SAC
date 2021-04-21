@@ -15,17 +15,17 @@ import torch.optim as optim
 import torchvision.transforms as T
 from PIL import Image
 
-from snake_env.snake_game import snake_game
+from snake_env.snake_game import snake_game, snake_game_easy
 from snake_SAC_networks import PolicyNetwork, SoftQNetwork, ValueNetwork
 from snake_SAC_utils import ReplayBuffer, plot
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-env = snake_game(10)
+env = snake_game_easy(10)
 
 # shape definition
 action_dim = 4         
-state_dim = env.observation_space.shape    
+state_dim = env.observation_space.shape[0]   
 hidden_dim = 256
 
 #hyperparameters
@@ -72,8 +72,8 @@ def update(batch_size, gamma=0.99, soft_tau=1e-2):
 
     state, action, reward, next_state, done = replay_buffer.sample(batch_size)
 
-    state = torch.FloatTensor(state).unsqueeze(1).to(device)
-    next_state = torch.FloatTensor(next_state).unsqueeze(1).to(device)
+    state = torch.FloatTensor(state).to(device)
+    next_state = torch.FloatTensor(next_state).to(device)
     action = torch.FloatTensor(action).to(device, dtype=torch.int64)
     reward = torch.FloatTensor(reward).unsqueeze(1).to(device)
     done = torch.FloatTensor(np.float32(done)).unsqueeze(1).to(device)

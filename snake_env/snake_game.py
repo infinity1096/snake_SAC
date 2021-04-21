@@ -142,3 +142,28 @@ if (__name__ == "__main__"):
         if (done):
             break        
 
+class snake_game_easy(snake_game):
+
+    def __init__(self, N=10):
+        
+        super().__init__(N)
+
+        self.observation_space = spaces.Box(0,1,(12, 1))
+
+    def extract_state(self):
+        state = []
+
+        state.append(self.snake_pos[0,1] < self.target_pos[1])      # is target above snake
+        state.append(self.snake_pos[0,1] > self.target_pos[1])      # is target below snake
+        state.append(self.snake_pos[0,0] < self.target_pos[0])      # is target right of snake
+        state.append(self.snake_pos[0,0] > self.target_pos[0])      # is target left of snake
+        state.append(self.board[self.snake_pos[0,0]-1,self.snake_pos[0,1]]==1)      # is obstacle directly above snake
+        state.append(self.board[self.snake_pos[0,0]+1,self.snake_pos[0,1]]==1)      # is obstacle directly below snake
+        state.append(self.board[self.snake_pos[0,0],self.snake_pos[0,1]+1]==1)      # is obstacle directly right of snake
+        state.append(self.board[self.snake_pos[0,0],self.snake_pos[0,1]-1]==1)      # is obstacle directly left of snake
+        state.append(self.snake_dir==0)
+        state.append(self.snake_dir==1)
+        state.append(self.snake_dir==2)
+        state.append(self.snake_dir==3)
+        
+        return state
