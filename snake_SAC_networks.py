@@ -12,8 +12,15 @@ class SoftQNetwork(nn.Module):
 
         self.action_dim = action_dim
 
+        self.conv_net = nn.Sequential(
+            nn.Conv2d(1, 4, 3, padding=1),
+            nn.ReLU(),
+        )
+
+        linear_dim = state_dim[0] * state_dim[1]
+
         self.fully_connected_net = nn.Sequential(
-            nn.Linear(state_dim, hidden_dim),
+            nn.Linear(linear_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
@@ -25,7 +32,12 @@ class SoftQNetwork(nn.Module):
         Output the Q value for all actions as a vector. 
         '''
         
-        x = self.fully_connected_net(state)
+        #x = self.conv_net(state)
+        x = state
+
+        x = x.view(x.size(0), -1)
+
+        x = self.fully_connected_net(x)
 
         return x
 
@@ -38,8 +50,15 @@ class PolicyNetwork(nn.Module):
         self.log_prob_min = log_prob_min
         self.log_prob_max = log_prob_max
 
+        self.conv_net = nn.Sequential(
+            nn.Conv2d(1, 4, 3, padding=1),
+            nn.ReLU(),
+        )
+
+        linear_in = state_dim[0] * state_dim[1]
+
         self.fully_connected_net = nn.Sequential(
-            nn.Linear(state_dim, hidden_dim),
+            nn.Linear(linear_in, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
@@ -47,13 +66,13 @@ class PolicyNetwork(nn.Module):
         )
     
     def forward(self, state):
+        
+        #x = self.conv_net(state)
+        x = state
 
+        x = x.view(x.size(0), -1)
 
-        log_prob = self.fully_connected_net(state)
-
-        lim = 100
-
-        log_prob = lim * torch.tanh(log_prob / lim)
+        log_prob = self.fully_connected_net(x)
 
         probs = torch.softmax(log_prob, dim=1)
 

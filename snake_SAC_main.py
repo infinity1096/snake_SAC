@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.transforms as T
+import torch.nn.utils as utils
 from PIL import Image
 
 from snake_env.snake_game import snake_game, snake_game_easy, snake_game_sparse
@@ -21,20 +22,22 @@ from snake_SAC_utils import ReplayBuffer, plot
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-env = snake_game_sparse()
+env = snake_game()
 
 # shape definition
 action_dim = 4    
-state_dim = env.observation_space.shape[0]   
+state_dim = env.observation_space.shape  
 hidden_dim = 256
 
 #hyperparameters
-learning_rate = 4e-4
-H_0 = 0.1
+learning_rate = 1e-3
+H_0 = torch.tensor([10.0], requires_grad=True, device=device)
 replay_buffer_size = 1000000
-batch_size = 256
+batch_size = 128
 
-max_frames = 24000
+grad_clip = 1e14
+
+max_frames = 120000
 max_steps = 400
 
 # networks
@@ -76,8 +79,8 @@ def update(batch_size, gamma=0.99, soft_tau=1e-2):
 
     state, action, reward, next_state, done = replay_buffer.sample(batch_size)
 
-    state = torch.FloatTensor(state).to(device)
-    next_state = torch.FloatTensor(next_state).to(device)
+    state = torch.FloatTensor(state).unsqueeze(1).to(device)
+    next_state = torch.FloatTensor(next_state).unsqueeze(1).to(device)
     action = torch.FloatTensor(action).to(device, dtype=torch.int64)
     reward = torch.FloatTensor(reward).to(device)
     done = torch.FloatTensor(np.float32(done)).to(device)
@@ -102,10 +105,12 @@ def update(batch_size, gamma=0.99, soft_tau=1e-2):
 
     soft_q_optimizer1.zero_grad()
     soft_q_loss_1.backward()
+    utils.clip_grad_value_(soft_q_net1.parameters(), grad_clip)
     soft_q_optimizer1.step()
 
     soft_q_optimizer2.zero_grad()
     soft_q_loss_2.backward()
+    utils.clip_grad_value_(soft_q_net2.parameters(), grad_clip)
     soft_q_optimizer2.step()
 
     # update policy network
@@ -115,12 +120,13 @@ def update(batch_size, gamma=0.99, soft_tau=1e-2):
 
     policy_optimizer.zero_grad()
     policy_loss.backward()
+    utils.clip_grad_value_(policy_net.parameters(), grad_clip)
     policy_optimizer.step()
 
     # update temperature TODO: 
-    #alpha_loss = torch.mean(torch.sum(policy_net(state) * - (alpha * policy_net(state).log() + H_0), axis=1))
-    #alpha_loss.backward()
-    #temperature_optimizer.step()
+    alpha_loss = torch.mean(torch.sum(policy_net(state) * - (alpha * policy_net(state).log() + alpha * H_0), axis=1))
+    alpha_loss.backward()
+    temperature_optimizer.step()
 
 
     # exponentially sync Q targets and Q
@@ -134,43 +140,43 @@ rewards = []
 frame_idx = 0
 
 ax = plt.gca()
-
-while frame_idx < max_frames:
-    state = env.reset()
-    episode_reward = 0
-    
-    for step in range(max_steps):
-        if frame_idx > 500:
-            action = policy_net.sample_action(
-                torch.FloatTensor([state]).to(device)
-            ).detach().item()
-            next_state, reward, done, _ = env.step(action)
-        else:
-            action = env.action_space.sample()
-            next_state, reward, done, _ = env.step(action)
+try:
+    while frame_idx < max_frames:
+        state = env.reset()
+        episode_reward = 0
         
-        
-        replay_buffer.push(state, action, reward, next_state, done)
-        
-        state = next_state
-        episode_reward += reward
-        frame_idx += 1
-        
-        if len(replay_buffer) > batch_size:
-            update(batch_size)
-        
-        if frame_idx % 200 == 0:
-            plot(ax, frame_idx, rewards)
-            plt.show(block=False)
-            plt.pause(0.1)
-            print(frame_idx, alpha)
-            print(policy_net( torch.FloatTensor([state]).to(device)))
-
-        if done:
-            break
-        
-    rewards.append(episode_reward)
-
+        for step in range(max_steps):
+            if frame_idx > 1000:
+                action = policy_net.sample_action(
+                    torch.FloatTensor(state).unsqueeze(0).unsqueeze(1).to(device)
+                ).detach().item()
+                next_state, reward, done, _ = env.step(action)
+            else:
+                action = env.action_space.sample()
+                next_state, reward, done, _ = env.step(action)
+            
+            
+            replay_buffer.push(state, action, reward, next_state, done)
+            
+            state = next_state
+            episode_reward += reward
+            frame_idx += 1
+            
+            if len(replay_buffer) > batch_size:
+                update(batch_size)
+            
+            if frame_idx % 200 == 0:
+                plot(ax, frame_idx, rewards)
+                plt.show(block=False)
+                plt.pause(0.1)
+                print(frame_idx, alpha)
+                print(policy_net(torch.FloatTensor(state).unsqueeze(0).unsqueeze(1).to(device)))
+            if done:
+                break
+            
+        rewards.append(episode_reward)
+except:
+    torch.save(policy_net, "trained_networks/policy_network2.p")
 #%% play animation
 plot(ax, frame_idx, rewards)
 plt.show()

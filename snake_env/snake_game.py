@@ -74,7 +74,7 @@ class snake_game(gym.Env):
         if (self.board[new_head_pos[0],new_head_pos[1]] == 1):
             # new snake pos is wall or snake
             s =  self.extract_state()
-            return s, -100, True, None                          # reward for stuck    
+            return s, 0, True, None                          # reward for stuck    
 
         elif (self.board[new_head_pos[0],new_head_pos[1]] == 2):
             # new snake pos is reward
@@ -99,9 +99,9 @@ class snake_game(gym.Env):
             new_head_dis = np.sum(np.abs(self.snake_pos[0,:] - self.target_pos))
 
             if (new_head_dis < old_head_dis):
-                return self.extract_state(), 1, False, None     
+                return self.extract_state(), 0, False, None     
             elif (new_head_dis > old_head_dis):
-                return self.extract_state(), -1, False, None   
+                return self.extract_state(), 0, False, None   
             else:
                 return self.extract_state(), 0, False, None   
 
