@@ -100,4 +100,4 @@ def plot(ax, frame_idx, rewards):
     ax.cla()
     ax.set_title('frame %s. reward: %s' % (frame_idx, rewards[-1]))
     ax.plot(rewards)
-    ax.plot(ewma_vectorized(rewards, 0.2))
+    ax.plot(ewma_vectorized(rewards, 0.01))

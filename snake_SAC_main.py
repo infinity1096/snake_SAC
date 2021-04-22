@@ -15,54 +15,75 @@ import torch.optim as optim
 import torchvision.transforms as T
 from PIL import Image
 
-from snake_env.snake_game import snake_game, snake_game_easy
-from snake_SAC_networks import PolicyNetwork, SoftQNetwork, ValueNetwork
+from snake_env.snake_game import snake_game, snake_game_easy, snake_game_sparse
+from snake_SAC_networks import PolicyNetwork, SoftQNetwork
 from snake_SAC_utils import ReplayBuffer, plot
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-env = snake_game_easy(10)
+env = snake_game_sparse()
 
 # shape definition
-action_dim = 4         
+action_dim = 4    
 state_dim = env.observation_space.shape[0]   
 hidden_dim = 256
 
 #hyperparameters
-learning_rate = 1e-5
+learning_rate = 4e-4
+H_0 = 0.1
 replay_buffer_size = 1000000
-batch_size = 16
+batch_size = 256
 
-max_frames = 40000
-max_steps = 300
+max_frames = 24000
+max_steps = 400
 
 # networks
-value_network = ValueNetwork(state_dim, hidden_dim).to(device)
-target_value_network = ValueNetwork(state_dim, hidden_dim).to(device)
+soft_q_net1 = SoftQNetwork(state_dim, action_dim, hidden_dim).to(device)
+soft_q_net2 = SoftQNetwork(state_dim, action_dim, hidden_dim).to(device)
 
-soft_q_network_1 = SoftQNetwork(state_dim, action_dim, hidden_dim).to(device)
-soft_q_network_2 = SoftQNetwork(state_dim, action_dim, hidden_dim).to(device)
+soft_q_net1_target = SoftQNetwork(state_dim, action_dim, hidden_dim).to(device)
+soft_q_net2_target = SoftQNetwork(state_dim, action_dim, hidden_dim).to(device)
 
-policy_network = PolicyNetwork(state_dim, hidden_dim, action_dim).to(device)
+policy_net = PolicyNetwork(state_dim, action_dim, hidden_dim).to(device)
 
-# sync value network parameters
-for (target_param, param) in zip(target_value_network.parameters(), value_network.parameters()):
+# temperature
+alpha = torch.tensor([1.0], requires_grad=True, device=device)
+
+# synchronize target and original
+for (target_param, param) in zip(soft_q_net1_target.parameters(), soft_q_net1.parameters()):
+    target_param.data.copy_(param.data)
+for (target_param, param) in zip(soft_q_net2_target.parameters(), soft_q_net2.parameters()):
     target_param.data.copy_(param.data)
 
-# loss function - except policy net
-value_criterion = nn.MSELoss()
-soft_q_1_criterion = nn.MSELoss()
-soft_q_2_criterion = nn.MSELoss()
+# loss functions
+soft_q_criterion1 = nn.MSELoss()
+soft_q_criterion2 = nn.MSELoss()
 
-# optimizer
-value_optimizer = optim.Adam(value_network.parameters(), lr=learning_rate)
-soft_q_1_optimizer = optim.Adam(soft_q_network_1.parameters(), lr=learning_rate)
-soft_q_2_optimizer = optim.Adam(soft_q_network_2.parameters(), lr=learning_rate)
-policy_optimizer = optim.Adam(policy_network.parameters(), lr=learning_rate)
+# optimizers
+soft_q_optimizer1 = optim.Adam(soft_q_net1.parameters(), lr=learning_rate)
+soft_q_optimizer2 = optim.Adam(soft_q_net2.parameters(), lr=learning_rate)
+policy_optimizer = optim.Adam(policy_net.parameters(), lr=learning_rate)
+temperature_optimizer = optim.Adam([alpha], lr=learning_rate)
 
+# replay buffer
 replay_buffer = ReplayBuffer(replay_buffer_size)
 
-# viz
+# visualization
+
+#%% temp: fill the replay buffer with something
+state = env.reset()
+done = False
+for i in range(100):
+    if (done):
+        env.reset()
+    
+    action = env.action_space.sample()
+    next_state, reward, done, _ = env.step(action)
+
+    replay_buffer.push(state, action, reward, next_state, done)
+    state = next_state
+
+# visualization
 fig = plt.figure()
 plt.show(block=False)
 ax = plt.gca()
@@ -75,52 +96,57 @@ def update(batch_size, gamma=0.99, soft_tau=1e-2):
     state = torch.FloatTensor(state).to(device)
     next_state = torch.FloatTensor(next_state).to(device)
     action = torch.FloatTensor(action).to(device, dtype=torch.int64)
-    reward = torch.FloatTensor(reward).unsqueeze(1).to(device)
-    done = torch.FloatTensor(np.float32(done)).unsqueeze(1).to(device)
+    reward = torch.FloatTensor(reward).to(device)
+    done = torch.FloatTensor(np.float32(done)).to(device)
 
-    predicted_q_1_value = soft_q_network_1(state, action)
-    predicted_q_2_value = soft_q_network_2(state, action)
-    predicted_value    = value_network(state)
-    new_action, log_prob, log_probs = policy_network.evaluate(state)
+    ### TODO: Not very sure of below:
+    # update Q networks
+    next_state_value_estimate1 = torch.sum(
+        policy_net(next_state) * (soft_q_net1_target(next_state) - alpha * policy_net(next_state).log())
+        , axis=1)
+    next_state_value_estimate2 = torch.sum(
+        policy_net(next_state) * (soft_q_net2_target(next_state) - alpha * policy_net(next_state).log())
+        , axis=1)
 
-    # train Q networks
-    target_value = target_value_network(next_state)
-    target_q_value = reward + (1 - done) * gamma * target_value
+    predicted_q_1_value = reward + (1 - done) * gamma * next_state_value_estimate1
+    predicted_q_2_value = reward + (1 - done) * gamma * next_state_value_estimate2
 
-    q_value_loss_1 = soft_q_1_criterion(predicted_q_1_value, target_q_value.detach())
-    q_value_loss_2 = soft_q_2_criterion(predicted_q_2_value, target_q_value.detach())
+    soft_q_value1 = soft_q_net1(state).gather(1, action.view(-1,1)).squeeze(1)
+    soft_q_value2 = soft_q_net2(state).gather(1, action.view(-1,1)).squeeze(1)
 
-    soft_q_1_optimizer.zero_grad()
-    q_value_loss_1.backward()
-    soft_q_1_optimizer.step()
+    soft_q_loss_1 = soft_q_criterion1(soft_q_value1, predicted_q_1_value)
+    soft_q_loss_2 = soft_q_criterion2(soft_q_value2, predicted_q_2_value)
 
-    soft_q_2_optimizer.zero_grad()
-    q_value_loss_2.backward()
-    soft_q_2_optimizer.step()
+    soft_q_optimizer1.zero_grad()
+    soft_q_loss_1.backward()
+    soft_q_optimizer1.step()
 
-    # train value network
-    predicted_q_value = torch.min(soft_q_network_1(state, new_action), soft_q_network_2(state, new_action))
-    target_value = predicted_q_value - log_prob
+    soft_q_optimizer2.zero_grad()
+    soft_q_loss_2.backward()
+    soft_q_optimizer2.step()
 
-    value_loss = value_criterion(predicted_value, target_value.detach())
-    
-    value_optimizer.zero_grad()
-    value_loss.backward()
-    value_optimizer.step()
-    
-    # train policy network
-    policy_loss = (log_prob - predicted_q_value).mean()
+    # update policy network
+    state_q_estimate = torch.min(soft_q_net1(state), soft_q_net2(state))
+    policy_loss_batch = torch.sum(policy_net(state) * (alpha * policy_net(state).log() - state_q_estimate), axis=1)
+    policy_loss = torch.mean(policy_loss_batch)
 
     policy_optimizer.zero_grad()
     policy_loss.backward()
     policy_optimizer.step()
 
-    # update value function by exponentially moving average
-    
-    for (target_param, param) in zip(target_value_network.parameters(), value_network.parameters()):
-        target_param.data.copy_(target_param.data * (1.0 - soft_tau) + param.data * soft_tau)
+    # update temperature TODO: 
+    #alpha_loss = torch.mean(torch.sum(policy_net(state) * - (alpha * policy_net(state).log() + H_0), axis=1))
+    #alpha_loss.backward()
+    #temperature_optimizer.step()
 
-# %% main - training
+
+    # exponentially sync Q targets and Q
+    for (target_param, param) in zip(soft_q_net1_target.parameters(), soft_q_net1.parameters()):
+            target_param.data.copy_(target_param.data * (1.0 - soft_tau) + param.data * soft_tau)
+    for (target_param, param) in zip(soft_q_net2_target.parameters(), soft_q_net2.parameters()):
+            target_param.data.copy_(target_param.data * (1.0 - soft_tau) + param.data * soft_tau)
+
+#%% main training loop 
 rewards = []
 frame_idx = 0
 
@@ -131,9 +157,9 @@ while frame_idx < max_frames:
     episode_reward = 0
     
     for step in range(max_steps):
-        if frame_idx >1000:
-            action = policy_network.sample_action(
-                torch.FloatTensor(state).unsqueeze(0).unsqueeze(0).to(device)
+        if frame_idx > 500:
+            action = policy_net.sample_action(
+                torch.FloatTensor([state]).to(device)
             ).detach().item()
             next_state, reward, done, _ = env.step(action)
         else:
@@ -150,22 +176,23 @@ while frame_idx < max_frames:
         if len(replay_buffer) > batch_size:
             update(batch_size)
         
-        if frame_idx % 1000 == 0:
+        if frame_idx % 200 == 0:
             plot(ax, frame_idx, rewards)
             plt.show(block=False)
             plt.pause(0.1)
-            print(frame_idx)
+            print(frame_idx, alpha)
+            print(policy_net( torch.FloatTensor([state]).to(device)))
 
         if done:
             break
         
     rewards.append(episode_reward)
 
-# %%
+#%% play animation
 plot(ax, frame_idx, rewards)
 plt.show()
 
-torch.save(policy_network, "trained_networks/policy_network.p")
+torch.save(policy_net, "trained_networks/policy_network.p")
 
 # %% render animation
 
@@ -176,12 +203,17 @@ env.render()
 plt.pause(2)
 
 while frame_idx < 1000:
-    action = policy_network.sample_action(state).detach()
-    next_state, reward, done, _ = env.step(action.numpy())
+    action = policy_net.sample_action(
+                torch.FloatTensor([state]).to(device)
+            ).detach().item()
+    next_state, reward, done, _ = env.step(action)
 
-    env.render()
+    env.render(block=False)
+    plt.pause(0.1)
 
     state = next_state
 
     frame_idx += 1
-# %%
+
+    if (done):
+        break
