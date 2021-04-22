@@ -69,23 +69,6 @@ temperature_optimizer = optim.Adam([alpha], lr=learning_rate)
 replay_buffer = ReplayBuffer(replay_buffer_size)
 
 # visualization
-
-#%% temp: fill the replay buffer with something
-state = env.reset()
-done = False
-for i in range(100):
-    if (done):
-        env.reset()
-    
-    action = env.action_space.sample()
-    next_state, reward, done, _ = env.step(action)
-
-    replay_buffer.push(state, action, reward, next_state, done)
-    state = next_state
-
-# visualization
-fig = plt.figure()
-plt.show(block=False)
 ax = plt.gca()
 
 #%% definition of network update
