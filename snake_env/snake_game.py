@@ -99,11 +99,11 @@ class snake_game(gym.Env):
             new_head_dis = np.sum(np.abs(self.snake_pos[0,:] - self.target_pos))
 
             if (new_head_dis < old_head_dis):
-                return self.extract_state(), 0, False, None     
+                return self.extract_state(), 1, False, None     
             elif (new_head_dis > old_head_dis):
-                return self.extract_state(), 0, False, None   
+                return self.extract_state(), -1, False, None   
             else:
-                return self.extract_state(), 0, False, None   
+                return self.extract_state(), -0.1, False, None   
 
     def render(self, mode='human', block=True):
 

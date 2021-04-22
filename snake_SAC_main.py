@@ -30,10 +30,10 @@ state_dim = env.observation_space.shape
 hidden_dim = 256
 
 #hyperparameters
-learning_rate = 1e-3
+learning_rate = 3e-4
 H_0 = torch.tensor([10.0], requires_grad=True, device=device)
-replay_buffer_size = 1000000
-batch_size = 128
+replay_buffer_size = 2000
+batch_size = 16
 
 grad_clip = 1e14
 
@@ -63,9 +63,9 @@ soft_q_criterion1 = nn.MSELoss()
 soft_q_criterion2 = nn.MSELoss()
 
 # optimizers
-soft_q_optimizer1 = optim.Adam(soft_q_net1.parameters(), lr=learning_rate)
-soft_q_optimizer2 = optim.Adam(soft_q_net2.parameters(), lr=learning_rate)
-policy_optimizer = optim.Adam(policy_net.parameters(), lr=learning_rate)
+soft_q_optimizer1 = optim.SGD(soft_q_net1.parameters(), lr=learning_rate)
+soft_q_optimizer2 = optim.SGD(soft_q_net2.parameters(), lr=learning_rate)
+policy_optimizer = optim.SGD(policy_net.parameters(), lr=learning_rate)
 temperature_optimizer = optim.Adam([alpha], lr=learning_rate)
 
 # replay buffer
@@ -146,7 +146,7 @@ try:
         episode_reward = 0
         
         for step in range(max_steps):
-            if frame_idx > 1000:
+            if frame_idx > 200:
                 action = policy_net.sample_action(
                     torch.FloatTensor(state).unsqueeze(0).unsqueeze(1).to(device)
                 ).detach().item()
