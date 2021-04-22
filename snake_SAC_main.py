@@ -21,21 +21,21 @@ from snake_SAC_utils import ReplayBuffer, plot
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-env = snake_game_sparse()
+env = gym.make("CartPole-v1")
 
 # shape definition
-action_dim = 4    
+action_dim = 2
 state_dim = env.observation_space.shape[0]   
-hidden_dim = 256
+hidden_dim = 32
 
 #hyperparameters
-learning_rate = 4e-4
-H_0 = 0.1
+learning_rate = 1e-3
+H_0 = torch.tensor([100.0], requires_grad=True, device=device)
 replay_buffer_size = 1000000
 batch_size = 256
 
 max_frames = 24000
-max_steps = 400
+max_steps = 1000
 
 # networks
 soft_q_net1 = SoftQNetwork(state_dim, action_dim, hidden_dim).to(device)
@@ -118,9 +118,9 @@ def update(batch_size, gamma=0.99, soft_tau=1e-2):
     policy_optimizer.step()
 
     # update temperature TODO: 
-    #alpha_loss = torch.mean(torch.sum(policy_net(state) * - (alpha * policy_net(state).log() + H_0), axis=1))
-    #alpha_loss.backward()
-    #temperature_optimizer.step()
+    alpha_loss = torch.mean(torch.sum(policy_net(state) * - (alpha * policy_net(state).log() + alpha * H_0), axis=1))
+    alpha_loss.backward()
+    temperature_optimizer.step()
 
 
     # exponentially sync Q targets and Q
@@ -140,7 +140,7 @@ while frame_idx < max_frames:
     episode_reward = 0
     
     for step in range(max_steps):
-        if frame_idx > 500:
+        if frame_idx > 0:
             action = policy_net.sample_action(
                 torch.FloatTensor([state]).to(device)
             ).detach().item()
@@ -191,7 +191,7 @@ while frame_idx < 1000:
             ).detach().item()
     next_state, reward, done, _ = env.step(action)
 
-    env.render(block=False)
+    env.render()
     plt.pause(0.1)
 
     state = next_state
